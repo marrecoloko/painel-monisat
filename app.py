@@ -22,7 +22,7 @@ def carregar_dados():
         st.error(f"Erro ao conectar no banco: {e}")
         return pd.DataFrame()
 
-st.title("📊 Monitoramento de Atrasos - Monisat")
+st.title("📊 Monitoramento de Conversas Atrasadas - Monisat")
 
 if st.button("🔄 Atualizar Dados Agora"):
     st.cache_data.clear()
