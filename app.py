@@ -5,8 +5,13 @@ from datetime import datetime, timedelta
 import io
 import xlsxwriter
 
-# Configuração da Página
-st.set_page_config(page_title="Monisat - Controle", layout="wide", page_icon="📊")
+# --- CONFIGURAÇÃO DA PÁGINA (COM LOGO NA ABA) ---
+# Altere 'logo.png' caso o nome do seu arquivo seja diferente
+st.set_page_config(
+    page_title="Monisat - Controle",
+    layout="wide",
+    page_icon="logo1.png" 
+)
 
 # --- FUNÇÃO GERADORA DE EXCEL FORMATADO ---
 def gerar_excel_formatado(df_dados):
@@ -81,9 +86,10 @@ df = carregar_dados()
 # --- BARRA LATERAL (LOGO E FILTROS) ---
 # Tenta carregar o logo na sidebar
 try:
-    st.sidebar.image("logo.png", use_column_width=True)
+    st.sidebar.image("logo1.png", use_column_width=True)
 except:
-    st.sidebar.warning("Arquivo logo.png não encontrado")
+    # Se não achar o logo, segue a vida sem erro
+    pass
 
 st.sidebar.header("Filtros do Relatório")
 
@@ -93,7 +99,6 @@ if df.empty:
 else:
     periodo = st.sidebar.selectbox("Selecionar Período", ["Hoje", "Ontem", "Mês Atual", "Todo o Histórico"])
     
-    # Botão de Atualizar (Mantive na Sidebar para limpar o topo)
     if st.sidebar.button("🔄 Atualizar Dados"):
         st.cache_data.clear()
         st.rerun()
@@ -115,10 +120,10 @@ else:
 col_titulo, col_botao = st.columns([3, 1])
 
 with col_titulo:
-    st.title("📊 Conversas Atrasdas Whats - Monisat")
+    st.title("📊 Monitoramento conversas atrasadas Monisat")
 
 with col_botao:
-    st.write("") # Espaçamento para alinhar verticalmente
+    st.write("")
     if not df_filtrado.empty:
         excel_data = gerar_excel_formatado(df_filtrado)
         st.download_button(
@@ -133,25 +138,27 @@ with col_botao:
 if not df_filtrado.empty:
     # --- KPIS ---
     st.markdown("---")
-    kpi1, kpi2, kpi3 = st.columns(3)
-    kpi1.metric("Total Atrasos", df_filtrado['msg_atrasadas'].sum())
-    kpi2.metric("Ocorrências", len(df_filtrado))
+    col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+    
+    # Total Atrasos (Volume de mensagens)
+    col_kpi1.metric("Total Atrasos (Volume)", df_filtrado['msg_atrasadas'].sum(), help="Soma total de todas as mensagens atrasadas detectadas no período.")
+    
+    # Ocorrências (Frequência de incidentes)
+    col_kpi2.metric("Ocorrências (Flagrantes)", len(df_filtrado), help="Quantidade de vezes que o robô detectou um atendente com atraso, independente de quantas mensagens eram.")
+    
     pior_atendente = df_filtrado.groupby('atendente')['msg_atrasadas'].sum().idxmax()
-    kpi3.metric("Maior quantidade de atrasos", pior_atendente)
+    col_kpi3.metric("Maior Quantidade de Atraso", pior_atendente)
     st.markdown("---")
 
     # --- RANKINGS (4 COLUNAS) ---
     st.subheader("Rankings por Turno e Geral")
     col_m, col_t, col_n, col_g = st.columns(4)
 
-    # Função auxiliar para gerar tabela bonitinha
     def mostrar_ranking(dataframe, turno_nome, coluna_alvo):
         coluna_alvo.markdown(f"#### {turno_nome}")
         if turno_nome == "Geral":
-             # Ranking Geral
              df_rank = dataframe.groupby('atendente')['msg_atrasadas'].sum().sort_values(ascending=False).reset_index()
         else:
-             # Ranking Por Turno
              df_rank = dataframe[dataframe['turno'] == turno_nome].groupby('atendente')['msg_atrasadas'].sum().sort_values(ascending=False).reset_index()
         
         if not df_rank.empty:
