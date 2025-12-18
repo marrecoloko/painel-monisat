@@ -12,7 +12,7 @@ st.set_page_config(
     page_icon="logo1.png"
 )
 
-# --- FUNÇÃO GERADORA DE EXCEL (AGORA POR OCORRÊNCIAS) ---
+# --- FUNÇÃO GERADORA DE EXCEL (POR OCORRÊNCIAS) ---
 def gerar_excel_formatado(df_dados, titulo_relatorio="Relatório Turnos"):
     output = io.BytesIO()
     workbook = xlsxwriter.Workbook(output, {'in_memory': True})
@@ -41,7 +41,7 @@ def gerar_excel_formatado(df_dados, titulo_relatorio="Relatório Turnos"):
     for turno in turnos:
         df_turno = df_dados[df_dados['turno'] == turno].copy()
         if not df_turno.empty:
-            # MUDANÇA AQUI: Contagem de ocorrências (count) em vez de soma (sum)
+            # Contagem de ocorrências
             resumo = df_turno.groupby('atendente')['msg_atrasadas'].count().reset_index().sort_values(by='msg_atrasadas', ascending=False)
             resumo.rename(columns={'msg_atrasadas': 'ocorrencias'}, inplace=True)
             
@@ -50,7 +50,7 @@ def gerar_excel_formatado(df_dados, titulo_relatorio="Relatório Turnos"):
             worksheet.write(linha_atual, 1, f"TURNO: {turno.upper()}", fmt_subtitulo)
             linha_atual += 2
             worksheet.write(linha_atual, 1, "Atendente", fmt_header)
-            worksheet.write(linha_atual, 2, "Ocorrências", fmt_header) # Cabeçalho alterado
+            worksheet.write(linha_atual, 2, "Ocorrências", fmt_header)
             linha_atual += 1
 
             for _, row in resumo.iterrows():
@@ -115,21 +115,17 @@ else:
     else:
         df_filtrado = df
 
-    # 2. BIBLIOTECA DE RELATÓRIOS MENSAIS (A "PASTA" AUTOMÁTICA)
+    # 2. BIBLIOTECA DE RELATÓRIOS MENSAIS
     st.sidebar.markdown("---")
     st.sidebar.subheader("📂 Histórico Mensal")
     
-    # Cria uma coluna Mês/Ano para agrupar
     df['mes_ano'] = df['data_hora'].dt.strftime('%m/%Y')
     meses_disponiveis = df['mes_ano'].unique()
     
     mes_selecionado = st.sidebar.selectbox("Selecione o Mês para Baixar:", meses_disponiveis)
     
     if mes_selecionado:
-        # Filtra os dados daquele mês específico
         df_historico = df[df['mes_ano'] == mes_selecionado]
-        
-        # Gera o Excel na hora
         excel_historico = gerar_excel_formatado(df_historico, titulo_relatorio=f"Relatório Mensal - {mes_selecionado}")
         
         st.sidebar.download_button(
@@ -160,14 +156,13 @@ with col_botao:
 if not df_filtrado.empty:
     st.markdown("---")
     
-    # --- KPIS (MANTIDOS ORIGINAIS) ---
+    # --- KPIS ---
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Atrasos (Volume)", df_filtrado['msg_atrasadas'].sum(), help="Soma total de mensagens atrasadas.")
-    col2.metric("Ocorrências (Flagrantes)", len(df_filtrado), help="Quantas vezes o robô pegou uma conversa atrasada.")
+    col2.metric("Ocorrências (Flagrantes)", len(df_filtrado), help="Quantas vezes o robô pegou alguém atrasado.")
     
-    # Maior ofensor agora baseado em OCORRÊNCIAS
     pior_atendente = df_filtrado.groupby('atendente').size().idxmax()
-    col3.metric("Quem mais atrasou msg no whats (Freq.)", pior_atendente)
+    col3.metric("Quem mais deixou msg atrasadas (Freq.)", pior_atendente)
     
     st.markdown("---")
 
@@ -179,7 +174,6 @@ if not df_filtrado.empty:
         coluna_alvo.markdown(f"#### {turno_nome}")
         
         if turno_nome == "Geral":
-             # .size() conta as linhas (ocorrências)
              df_rank = dataframe.groupby('atendente').size().reset_index(name='ocorrências').sort_values(by='ocorrências', ascending=False)
         else:
              df_rank = dataframe[dataframe['turno'] == turno_nome].groupby('atendente').size().reset_index(name='ocorrências').sort_values(by='ocorrências', ascending=False)
@@ -193,28 +187,6 @@ if not df_filtrado.empty:
     mostrar_ranking_ocorrencia(df_filtrado, "Tarde", col_t)
     mostrar_ranking_ocorrencia(df_filtrado, "Madrugada", col_n)
     mostrar_ranking_ocorrencia(df_filtrado, "Geral", col_g)
-
-    # --- LOG DETALHADO (NOVA SEÇÃO) ---
-    st.markdown("---")
-    st.subheader("📝 Log de Registros Detalhado")
-    
-    # Prepara tabela bonita para o Log
-    df_log = df_filtrado[['data_hora', 'atendente', 'turno', 'msg_atrasadas']].copy()
-    df_log['data_hora'] = df_log['data_hora'].dt.strftime('%d/%m/%Y %H:%M')
-    df_log.rename(columns={
-        'data_hora': 'Data/Hora', 
-        'atendente': 'Atendente', 
-        'turno': 'Turno', 
-        'msg_atrasadas': 'Msgs Atrasadas no Momento'
-    }, inplace=True)
-    
-    # Mostra o log ordenado do mais recente para o mais antigo
-    st.dataframe(
-        df_log.sort_values(by='Data/Hora', ascending=False), 
-        use_container_width=True, 
-        hide_index=True,
-        height=300 # Barra de rolagem se for muito grande
-    )
 
 else:
     st.info("Nenhum dado encontrado para o período selecionado.")
