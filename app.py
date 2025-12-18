@@ -5,19 +5,18 @@ from datetime import datetime, timedelta
 import io
 import xlsxwriter
 
-# --- CONFIGURAÇÃO DA PÁGINA (COM LOGO NA ABA) ---
-# Altere 'logo.png' caso o nome do seu arquivo seja diferente
+# --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
     page_title="Monisat - Controle",
     layout="wide",
-    page_icon="logo1.png" 
+    page_icon="logo1.png"
 )
 
-# --- FUNÇÃO GERADORA DE EXCEL FORMATADO ---
-def gerar_excel_formatado(df_dados):
+# --- FUNÇÃO GERADORA DE EXCEL (AGORA POR OCORRÊNCIAS) ---
+def gerar_excel_formatado(df_dados, titulo_relatorio="Relatório Turnos"):
     output = io.BytesIO()
     workbook = xlsxwriter.Workbook(output, {'in_memory': True})
-    worksheet = workbook.add_worksheet('Relatório Turnos')
+    worksheet = workbook.add_worksheet('Relatório')
 
     # Estilos
     fmt_titulo = workbook.add_format({'bold': True, 'font_size': 16, 'align': 'center', 'valign': 'vcenter'})
@@ -27,7 +26,6 @@ def gerar_excel_formatado(df_dados):
     fmt_numero = workbook.add_format({'border': 1, 'align': 'center'})
     fmt_total = workbook.add_format({'bold': True, 'bg_color': '#E0E0E0', 'border': 1, 'align': 'center'})
 
-    # Inserir Logo no Excel (se existir)
     try:
         worksheet.insert_image('A1', 'logo.png', {'x_scale': 0.5, 'y_scale': 0.5})
         worksheet.set_row(0, 50)
@@ -35,7 +33,7 @@ def gerar_excel_formatado(df_dados):
         pass
 
     worksheet.merge_range('B2:E2', 'RELATÓRIO DE MONITORAMENTO - MONISAT', fmt_titulo)
-    worksheet.merge_range('B3:E3', f'Gerado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}', workbook.add_format({'align': 'center'}))
+    worksheet.merge_range('B3:E3', f'{titulo_relatorio} - Gerado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}', workbook.add_format({'align': 'center'}))
 
     linha_atual = 5
     turnos = ['Manhã', 'Tarde', 'Madrugada']
@@ -43,21 +41,24 @@ def gerar_excel_formatado(df_dados):
     for turno in turnos:
         df_turno = df_dados[df_dados['turno'] == turno].copy()
         if not df_turno.empty:
-            resumo = df_turno.groupby('atendente')['msg_atrasadas'].sum().reset_index().sort_values(by='msg_atrasadas', ascending=False)
-            total_turno = resumo['msg_atrasadas'].sum()
+            # MUDANÇA AQUI: Contagem de ocorrências (count) em vez de soma (sum)
+            resumo = df_turno.groupby('atendente')['msg_atrasadas'].count().reset_index().sort_values(by='msg_atrasadas', ascending=False)
+            resumo.rename(columns={'msg_atrasadas': 'ocorrencias'}, inplace=True)
+            
+            total_turno = resumo['ocorrencias'].sum()
 
             worksheet.write(linha_atual, 1, f"TURNO: {turno.upper()}", fmt_subtitulo)
             linha_atual += 2
             worksheet.write(linha_atual, 1, "Atendente", fmt_header)
-            worksheet.write(linha_atual, 2, "Total Atrasos", fmt_header)
+            worksheet.write(linha_atual, 2, "Ocorrências", fmt_header) # Cabeçalho alterado
             linha_atual += 1
 
             for _, row in resumo.iterrows():
                 worksheet.write(linha_atual, 1, row['atendente'], fmt_texto)
-                worksheet.write(linha_atual, 2, row['msg_atrasadas'], fmt_numero)
+                worksheet.write(linha_atual, 2, row['ocorrencias'], fmt_numero)
                 linha_atual += 1
 
-            worksheet.write(linha_atual, 1, "TOTAL DO TURNO", fmt_total)
+            worksheet.write(linha_atual, 1, "TOTAL (FLAGRANTES)", fmt_total)
             worksheet.write(linha_atual, 2, total_turno, fmt_total)
             linha_atual += 3
         
@@ -80,24 +81,22 @@ def carregar_dados():
         st.error(f"Erro ao conectar no banco: {e}")
         return pd.DataFrame()
 
-# --- LÓGICA DO FILTRO E DADOS ---
 df = carregar_dados()
 
-# --- BARRA LATERAL (LOGO E FILTROS) ---
-# Tenta carregar o logo na sidebar
+# --- BARRA LATERAL ---
 try:
     st.sidebar.image("logo1.png", use_column_width=True)
 except:
-    # Se não achar o logo, segue a vida sem erro
     pass
 
-st.sidebar.header("Filtros do Relatório")
+st.sidebar.header("Filtros Atuais")
 
 if df.empty:
-    st.warning("Aguardando dados do Robô...")
+    st.warning("Aguardando dados...")
     df_filtrado = pd.DataFrame()
 else:
-    periodo = st.sidebar.selectbox("Selecionar Período", ["Hoje", "Ontem", "Mês Atual", "Todo o Histórico"])
+    # 1. Filtros Normais
+    periodo = st.sidebar.selectbox("Período de Análise", ["Hoje", "Ontem", "Mês Atual", "Todo o Histórico"])
     
     if st.sidebar.button("🔄 Atualizar Dados"):
         st.cache_data.clear()
@@ -116,60 +115,106 @@ else:
     else:
         df_filtrado = df
 
-# --- LAYOUT DO TOPO (TÍTULO E BOTÃO EXPORTAR) ---
+    # 2. BIBLIOTECA DE RELATÓRIOS MENSAIS (A "PASTA" AUTOMÁTICA)
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📂 Histórico Mensal")
+    
+    # Cria uma coluna Mês/Ano para agrupar
+    df['mes_ano'] = df['data_hora'].dt.strftime('%m/%Y')
+    meses_disponiveis = df['mes_ano'].unique()
+    
+    mes_selecionado = st.sidebar.selectbox("Selecione o Mês para Baixar:", meses_disponiveis)
+    
+    if mes_selecionado:
+        # Filtra os dados daquele mês específico
+        df_historico = df[df['mes_ano'] == mes_selecionado]
+        
+        # Gera o Excel na hora
+        excel_historico = gerar_excel_formatado(df_historico, titulo_relatorio=f"Relatório Mensal - {mes_selecionado}")
+        
+        st.sidebar.download_button(
+            label=f"📥 Baixar {mes_selecionado}",
+            data=excel_historico,
+            file_name=f"Relatorio_Monisat_{mes_selecionado.replace('/','_')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+# --- PAINEL PRINCIPAL ---
 col_titulo, col_botao = st.columns([3, 1])
-
 with col_titulo:
-    st.title("📊 Monitoramento conversas atrasadas Monisat")
-
+    st.title("📊 Monitoramento Monisat")
 with col_botao:
     st.write("")
     if not df_filtrado.empty:
-        excel_data = gerar_excel_formatado(df_filtrado)
+        # Relatório do filtro atual
+        excel_data = gerar_excel_formatado(df_filtrado, titulo_relatorio=f"Relatório - {periodo}")
         st.download_button(
-            label="📥 Baixar Relatório (.xlsx)",
+            label="📥 Baixar Relatório Atual (.xlsx)",
             data=excel_data,
-            file_name=f"Relatorio_Monisat_{periodo}.xlsx",
+            file_name=f"Relatorio_Atual_{periodo}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             use_container_width=True
         )
 
 if not df_filtrado.empty:
-    # --- KPIS ---
     st.markdown("---")
-    col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
     
-    # Total Atrasos (Volume de mensagens)
-    col_kpi1.metric("Total Atrasos (Volume)", df_filtrado['msg_atrasadas'].sum(), help="Soma total de todas as mensagens atrasadas detectadas no período.")
+    # --- KPIS (MANTIDOS ORIGINAIS) ---
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Atrasos (Volume)", df_filtrado['msg_atrasadas'].sum(), help="Soma total de mensagens atrasadas.")
+    col2.metric("Ocorrências (Flagrantes)", len(df_filtrado), help="Quantas vezes o robô pegou uma conversa atrasada.")
     
-    # Ocorrências (Frequência de incidentes)
-    col_kpi2.metric("Ocorrências (Flagrantes)", len(df_filtrado), help="Quantidade de vezes que o robô detectou um atendente com atraso, independente de quantas mensagens eram.")
+    # Maior ofensor agora baseado em OCORRÊNCIAS
+    pior_atendente = df_filtrado.groupby('atendente').size().idxmax()
+    col3.metric("Quem mais atrasou msg no whats (Freq.)", pior_atendente)
     
-    pior_atendente = df_filtrado.groupby('atendente')['msg_atrasadas'].sum().idxmax()
-    col_kpi3.metric("Maior Quantidade de Atraso", pior_atendente)
     st.markdown("---")
 
-    # --- RANKINGS (4 COLUNAS) ---
-    st.subheader("Rankings por Turno e Geral")
+    # --- RANKINGS POR OCORRÊNCIA ---
+    st.subheader("🏆 Rankings por Ocorrência (Frequência de Atrasos)")
     col_m, col_t, col_n, col_g = st.columns(4)
 
-    def mostrar_ranking(dataframe, turno_nome, coluna_alvo):
+    def mostrar_ranking_ocorrencia(dataframe, turno_nome, coluna_alvo):
         coluna_alvo.markdown(f"#### {turno_nome}")
+        
         if turno_nome == "Geral":
-             df_rank = dataframe.groupby('atendente')['msg_atrasadas'].sum().sort_values(ascending=False).reset_index()
+             # .size() conta as linhas (ocorrências)
+             df_rank = dataframe.groupby('atendente').size().reset_index(name='ocorrências').sort_values(by='ocorrências', ascending=False)
         else:
-             df_rank = dataframe[dataframe['turno'] == turno_nome].groupby('atendente')['msg_atrasadas'].sum().sort_values(ascending=False).reset_index()
+             df_rank = dataframe[dataframe['turno'] == turno_nome].groupby('atendente').size().reset_index(name='ocorrências').sort_values(by='ocorrências', ascending=False)
         
         if not df_rank.empty:
             coluna_alvo.dataframe(df_rank, hide_index=True, use_container_width=True)
         else:
-            coluna_alvo.info("Sem dados.")
+            coluna_alvo.info("-")
 
-    mostrar_ranking(df_filtrado, "Manhã", col_m)
-    mostrar_ranking(df_filtrado, "Tarde", col_t)
-    mostrar_ranking(df_filtrado, "Madrugada", col_n)
-    mostrar_ranking(df_filtrado, "Geral", col_g)
+    mostrar_ranking_ocorrencia(df_filtrado, "Manhã", col_m)
+    mostrar_ranking_ocorrencia(df_filtrado, "Tarde", col_t)
+    mostrar_ranking_ocorrencia(df_filtrado, "Madrugada", col_n)
+    mostrar_ranking_ocorrencia(df_filtrado, "Geral", col_g)
+
+    # --- LOG DETALHADO (NOVA SEÇÃO) ---
+    st.markdown("---")
+    st.subheader("📝 Log de Registros Detalhado")
+    
+    # Prepara tabela bonita para o Log
+    df_log = df_filtrado[['data_hora', 'atendente', 'turno', 'msg_atrasadas']].copy()
+    df_log['data_hora'] = df_log['data_hora'].dt.strftime('%d/%m/%Y %H:%M')
+    df_log.rename(columns={
+        'data_hora': 'Data/Hora', 
+        'atendente': 'Atendente', 
+        'turno': 'Turno', 
+        'msg_atrasadas': 'Msgs Atrasadas no Momento'
+    }, inplace=True)
+    
+    # Mostra o log ordenado do mais recente para o mais antigo
+    st.dataframe(
+        df_log.sort_values(by='Data/Hora', ascending=False), 
+        use_container_width=True, 
+        hide_index=True,
+        height=300 # Barra de rolagem se for muito grande
+    )
 
 else:
     st.info("Nenhum dado encontrado para o período selecionado.")
