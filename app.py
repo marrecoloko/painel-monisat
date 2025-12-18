@@ -9,7 +9,7 @@ import xlsxwriter
 st.set_page_config(
     page_title="Monisat - Controle",
     layout="wide",
-    page_icon="logo.png"
+    page_icon="logo1.png"
 )
 
 # --- FUNÇÃO GERADORA DE EXCEL ---
@@ -100,7 +100,7 @@ df = carregar_dados()
 # --- BARRA LATERAL (LOGO NO TOPO) ---
 try:
     # Logo é a primeira coisa da Sidebar
-    st.sidebar.image("logo.png", use_column_width=True) 
+    st.sidebar.image("logo1.png", use_column_width=True) 
 except:
     pass
 
