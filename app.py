@@ -173,7 +173,7 @@ if not df_filtrado.empty:
     col1.metric("Total Atrasos (Volume)", df_filtrado['msg_atrasadas'].sum())
     col2.metric("Ocorrências (Flagrantes)", len(df_filtrado))
     pior_atendente = df_filtrado.groupby('atendente').size().idxmax()
-    col3.metric("Maior Ofensor (Freq.)", pior_atendente)
+    col3.metric("Quem mais deixa conversa atrasadas (Freq.)", pior_atendente)
     
     st.markdown("---")
 
